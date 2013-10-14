@@ -8,11 +8,11 @@ main:
     subal %a1,%a5
 
 check:
-	.dc.l 0xffffffff
-	.dc.l 0xa0, 0
-	.dc.l 0xa1, 4
-	.dc.l 0xa2, 8
-	.dc.l 0xa3, 16
-	.dc.l 0xa4, 16
-	.dc.l 0xa5, 12
-	.dc.l 0
+    .dc.l 0xffffffff
+    .dc.l 0xa0, 0
+    .dc.l 0xa1, 4
+    .dc.l 0xa2, 8
+    .dc.l 0xa3, 16
+    .dc.l 0xa4, 16
+    .dc.l 0xa5, 12
+    .dc.l 0
