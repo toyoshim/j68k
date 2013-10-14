@@ -84,32 +84,32 @@ exports.j68 = (function () {
         return u32 + this.extS16U32(s16);
     };
     
-    j68.prototype.effectiveAddress = function (pc, inst, ea) {
+    j68.prototype.effectiveAddress = function (pc, inst, ld) {
         var mode = (inst >> 3) & 7;
         var r = inst & 7;
         var ea;
         switch (mode) {
             case 1:
-                ea = 'c.a['+r+']';
+                ea = 'c.a[' + r + ']';
                 return {
                     'pc': pc + 2,
                     'ea': ea,
                     'data': ea
                 };
             case 2:
-                ea = 'c.a['+r+']';
+                ea = 'c.a[' + r + ']';
                 return {
                     'pc': pc + 2,
                     'ea': ea,
-                    'data': 'c.l32('+ea+')'
+                    'data': ld + '(' + ea + ')'
                 };
             case 5:
                 var disp = this.context.fetch(pc + 2);
-                ea = 'c.a['+r+']+'+this.extS16U32(disp);
+                ea = 'c.a[' + r + ']+' + this.extS16U32(disp);
                 return {
                     'pc': pc + 4,
                     'ea': ea,
-                    'data': 'c.l32('+ea+')'
+                    'data': ld + '(' + ea + ')'
                 };
         }
         // TODO: Implement other mode
@@ -146,8 +146,8 @@ exports.j68 = (function () {
             i++;
             if (code.quit) {
                 if (!code.in || !code.in.pc)
-                    asm.push({ 'code': ['c.pc='+pc+';' ] });
-                asm.push({ 'code': ['c.i+='+i+';'] });
+                    asm.push({ 'code': ['c.pc=' + pc + ';' ] });
+                asm.push({ 'code': ['c.i+=' + i + ';' ] });
                 if (code.error) {
                     this.context.halt = true;
                     this.log('compile error: ' + code.message);
@@ -179,7 +179,7 @@ exports.j68 = (function () {
                     }
                 }
                 if (asm[i].out[flag]) {
-                    asm[i].post.push('c.c'+flag+'='+asm[i].out[flag]+';');
+                    asm[i].post.push('c.c' + flag + '=' + asm[i].out[flag] + ';');
                 }
             }
         }
@@ -189,7 +189,7 @@ exports.j68 = (function () {
             if (!asm[i].in)
                 continue;
             if (asm[i].in.pc)
-                asm[i - 1].post.push('c.pc='+asm[i].pc+';');
+                asm[i - 1].post.push('c.pc=' + asm[i].pc + ';');
             if (asm[i].in.ccr)
                 asm[i - 1].post.push('c.ccr();');
         }
@@ -241,7 +241,7 @@ exports.j68 = (function () {
         if (op == 7) {
             // LEA
             return {
-                'code': [ 'c.a['+r+']='+ea.ea+';' ],
+                'code': [ 'c.a[' + r + ']=' + ea.ea + ';' ],
                 'pc': ea.pc
             };
         }
@@ -264,7 +264,7 @@ exports.j68 = (function () {
         var code = [];
         if (mode == 0) {
             // TODO: Set conditions.
-            code.push('c.d['+r+']+='+(data<<size)+';');
+            code.push('c.d[' + r + ']+=' + (data << size) + ';');
         } else {
             // TODO: Implement.
             throw console.assert(false);
@@ -311,9 +311,7 @@ exports.j68 = (function () {
             throw console.assert(false);
         }
         return {
-            'code': [
-                'c.d['+r+']='+this.extS8U32(data)+';'
-            ],
+            'code': [ 'c.d[' + r + ']=' + this.extS8U32(data) + ';' ],
             'out': {
                 'n': '(c.d['+r+']>>31)',
                 'z': '(c.d['+r+']==0)',
@@ -328,7 +326,7 @@ exports.j68 = (function () {
         // SUB, SUBA
         var r = (inst >> 9) & 7;
         var opmode = (inst >> 6) & 7;
-        var ea = this.effectiveAddress(pc, inst);
+        var ea = this.effectiveAddress(pc, inst, 'c.l32');
         var code = [];
         switch (opmode) {
             case 7:  // SUBAL
@@ -358,9 +356,7 @@ exports.j68 = (function () {
                 'c': true,
                 'ccr': true
             },
-            'code': [
-                'c.f('+inst+');'
-            ],
+            'code': [ 'c.f(' + inst + ');' ],
             'pc': pc + 2,
             'quit': true
         }
