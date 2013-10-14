@@ -1,6 +1,7 @@
 moveq x: not affected
 moveq v: cleared
 moveq c: cleared
+movea ccr: not affected
 addq: everything
 bra: ccr: not affected
 lea: everything

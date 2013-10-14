@@ -84,14 +84,17 @@ exports.j68 = (function () {
         return u32 + this.extS16U32(s16);
     };
     
-    j68.prototype.effectiveAddress = function (pc, inst, ld) {
+    j68.prototype.effectiveAddress = function (pc, inst, ld, size) {
         var mode = (inst >> 3) & 7;
         var r = inst & 7;
         var ea;
+        var disp;
         switch (mode) {
             case 1:
                 ea = 'c.a[' + r + ']';
                 return {
+                    'pre': '',
+                    'post': '',
                     'pc': pc + 2,
                     'ea': ea,
                     'data': ea
@@ -99,18 +102,55 @@ exports.j68 = (function () {
             case 2:
                 ea = 'c.a[' + r + ']';
                 return {
+                    'pre': '',
+                    'post': '',
+                    'pc': pc + 2,
+                    'ea': ea,
+                    'data': ld + '(' + ea + ')'
+                };
+            case 3:
+                ea = 'c.a[' + r + ']';
+                return {
+                    'pre': '',
+                    'post': ';' + ea + '+=' + size,
+                    'pc': pc + 2,
+                    'ea': ea,
+                    'data': ld + '(' + ea + ')'
+                };
+            case 4:
+                ea = 'c.a[' + r + ']';
+                return {
+                    'pre': ea + '-=' + size + ';',
+                    'post': '',
                     'pc': pc + 2,
                     'ea': ea,
                     'data': ld + '(' + ea + ')'
                 };
             case 5:
-                var disp = this.context.fetch(pc + 2);
+                disp = this.context.fetch(pc + 2);
                 ea = 'c.a[' + r + ']+' + this.extS16U32(disp);
                 return {
+                    'pre': '',
+                    'post': '',
                     'pc': pc + 4,
                     'ea': ea,
                     'data': ld + '(' + ea + ')'
                 };
+            case 7:
+                switch (r) {
+                    case 2:
+                        disp = this.context.fetch(pc + 2);
+                        ea = '' + this.addU32S16(pc + 2, disp);
+                        return {
+                            'pre': '',
+                            'post': '',
+                            'pc': pc + 4,
+                            'ea': ea,
+                            'data': ld + '(' + ea + ')'
+                        };
+                }
+                this.log('not impl ea mode 7 r: ' + r);
+                throw console.assert(false);
         }
         // TODO: Implement other mode
         this.log('not impl ea mode: ' + mode);
@@ -217,6 +257,8 @@ exports.j68 = (function () {
             this.log('decode; $' + toHex(pc) + ': ' + toHex(inst, 4));
         var line = (inst >> 12) & 0xf;
         switch (line) {
+            case 0x2:  // MOVEL, MOVEAL
+                return this.decode2(pc, inst);
             case 0x4:  // LEA
                 return this.decode4(pc, inst);
             case 0x5:  // ADDQ
@@ -234,14 +276,39 @@ exports.j68 = (function () {
         throw console.assert(false);
     };
     
+    j68.prototype.decode2 = function (pc, inst) {
+        // MOVEL, MOVEAL
+        var r = (inst >> 9) & 7;
+        var mode = (inst >> 6) & 7;
+        var ea = this.effectiveAddress(pc, inst, 'c.l32', 4);
+        switch (mode) {
+            case 0:
+                // MOVEL *,dx
+                return {
+                    'code': [ ea.pre + 'c.d[' + r + ']=' + ea.data + ea.post + ';' ],
+                    'out': this.flagMove('c.d[' + r + ']'),
+                    'pc': ea.pc
+                };
+            case 1:
+                // MOVEAL
+                return {
+                    'code': [ ea.pre + 'c.a[' + r + ']=' + ea.data + ea.post + ';' ],
+                    'pc': ea.pc
+                };
+        }
+        // TODO: Implement other modes.
+        this.log('not impl movel mode: ' + mode);
+        throw console.assert(false);
+    };
+    
     j68.prototype.decode4 = function (pc, inst) {
         var r = (inst >> 9) & 7;
         var op = (inst >> 6) & 7;
-        var ea = this.effectiveAddress(pc, inst);
+        var ea = this.effectiveAddress(pc, inst);  // TODO: Check supporting addressing mode.
         if (op == 7) {
             // LEA
             return {
-                'code': [ 'c.a[' + r + ']=' + ea.ea + ';' ],
+                'code': [ ea.pre + 'c.a[' + r + ']=' + ea.ea + ea.post + ';' ],
                 'pc': ea.pc
             };
         }
@@ -312,12 +379,7 @@ exports.j68 = (function () {
         }
         return {
             'code': [ 'c.d[' + r + ']=' + this.extS8U32(data) + ';' ],
-            'out': {
-                'n': '(c.d['+r+']>>31)',
-                'z': '(c.d['+r+']==0)',
-                'v': '0',
-                'c': '0'
-            },
+            'out': this.flagMove('c.d[' + r + ']'),
             'pc': pc + 2
         };
     };
@@ -326,11 +388,11 @@ exports.j68 = (function () {
         // SUB, SUBA
         var r = (inst >> 9) & 7;
         var opmode = (inst >> 6) & 7;
-        var ea = this.effectiveAddress(pc, inst, 'c.l32');
+        var ea = this.effectiveAddress(pc, inst, 'c.l32', 4);
         var code = [];
         switch (opmode) {
             case 7:  // SUBAL
-                code.push('c.a['+r+']-='+ea.data+';');
+                code.push(ea.pre + 'c.a[' + r + ']-=' + ea.data + ea.post + ';');
                 break;
             default:
                 // TODO: Implement other opmode.
@@ -359,7 +421,16 @@ exports.j68 = (function () {
             'code': [ 'c.f(' + inst + ');' ],
             'pc': pc + 2,
             'quit': true
-        }
+        };
+    };
+    
+    j68.prototype.flagMove = function (r) {
+        return {
+            'n': '(' + r + '>>31)',
+            'z': '(' + r + '==0)',
+            'v': '0',
+            'c': '0'
+        };
     };
     
     return j68;
