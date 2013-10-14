@@ -1,0 +1,6 @@
+moveq x: not affected
+moveq v: cleared
+moveq c: cleared
+addq: everything
+bra: ccr: not affected
+lea: everything

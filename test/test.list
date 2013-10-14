@@ -1,0 +1,10 @@
+{ "tests": [
+"r/addq_1.r"
+,"r/bra_1.r"
+,"r/bra_2.r"
+,"r/bra_3.r"
+,"r/moveq_to_reg_1.r"
+,"r/moveq_to_reg_2.r"
+,"r/moveq_to_reg_3.r"
+,"r/subal_1.r"
+] }
