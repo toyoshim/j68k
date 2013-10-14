@@ -3,9 +3,11 @@
 ,"r/bra_1.r"
 ,"r/bra_2.r"
 ,"r/bra_3.r"
+,"r/move_index_1.r"
 ,"r/move_mem_1.r"
 ,"r/moveq_to_reg_1.r"
 ,"r/moveq_to_reg_2.r"
 ,"r/moveq_to_reg_3.r"
+,"r/move_reg_1.r"
 ,"r/subal_1.r"
 ] }

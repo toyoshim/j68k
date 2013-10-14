@@ -24,11 +24,11 @@ json.tests.forEach(function (test) {
 	            break;
 	        } else if (0xa0 <= command && command <= 0xa7) {
 	            var r = command - 0xa0;
-	            assert.equal(cpu.context.a[r], cpu.context.l32(pc));
+	            assert.equal(cpu.context.a[r], cpu.context.l32(pc), command.toString(16));
 	            pc += 4;
 	        } else if (0xd0 <= command && command <= 0xd7) {
 	            var r = command - 0xd0;
-	            assert.equal(cpu.context.d[r], cpu.context.l32(pc));
+	            assert.equal(cpu.context.d[r], cpu.context.l32(pc), command.toString(16));
 	            pc += 4;
 	        } else if (0xf00 <= command && command <= 0xf1f) {
 	            var mask = command & 0x1f;

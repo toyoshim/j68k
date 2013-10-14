@@ -13,16 +13,6 @@ exports.j68 = (function () {
         this.m = new DataView(new ArrayBuffer(memorySize));
         this.c = {};
         this.halt = false;
-        
-        this.ccr = function () {
-            this.sr &= 0xff00;
-            if (this.cx) this.sr |= 0x10;
-            if (this.cn) this.sr |= 0x08;
-            if (this.cz) this.sr |= 0x04;
-            if (this.cv) this.sr |= 0x02;
-            if (this.cc) this.sr |= 0x01;
-
-        };
 
         // TODO: Check memory alignments, do cache invalidation.
         this.l8 = function (address) { return this.m.getUint8(address); };
@@ -34,11 +24,28 @@ exports.j68 = (function () {
         this.s8 = function (address, data) { this.m.setUint8(address, data); return true; };
         this.s16 = function (address, data) { this.m.setUint8(address, data); return true; };
         this.s32 = function (address, data) { this.m.setUint32(address, data); return true; };
-        
+
+        // F-line emulation hook.        
         this.f = function (inst) {};
+
         Object.seal(this);
     };
     
+    Context.prototype.ccr = function () {
+        this.sr &= 0xff00;
+        if (this.cx) this.sr |= 0x10;
+        if (this.cn) this.sr |= 0x08;
+        if (this.cz) this.sr |= 0x04;
+        if (this.cv) this.sr |= 0x02;
+        if (this.cc) this.sr |= 0x01;
+    };
+    
+    Context.prototype.xw = function (s16) {
+        if (s16 < 0x8000)
+            return s16;
+        return 0xffff0000 + s16;
+    };
+
     var toHex = function (n, l) {
         var size = l || 8;
         return ('0000000' + n.toString(16)).substr(-size);
@@ -71,9 +78,7 @@ exports.j68 = (function () {
     };
     
     j68.prototype.extS16U32 = function (s16) {
-        if (s16 < 0x8000)
-            return s16;
-        return 0xffff0000 + s16;
+        return this.context.xw(s16);
     };
     
     j68.prototype.addU32S8 = function (u32, s8) {
@@ -90,6 +95,15 @@ exports.j68 = (function () {
         var ea;
         var disp;
         switch (mode) {
+            case 0:
+                ea = 'c.d[' + r + ']';
+                return {
+                    'pre': '',
+                    'post': '',
+                    'pc': pc + 2,
+                    'ea': ea,
+                    'data': ea
+                };
             case 1:
                 ea = 'c.a[' + r + ']';
                 return {
@@ -129,6 +143,25 @@ exports.j68 = (function () {
             case 5:
                 disp = this.context.fetch(pc + 2);
                 ea = 'c.a[' + r + ']+' + this.extS16U32(disp);
+                return {
+                    'pre': '',
+                    'post': '',
+                    'pc': pc + 4,
+                    'ea': ea,
+                    'data': ld + '(' + ea + ')'
+                };
+            case 6:
+                disp = this.context.fetch(pc + 2);
+                // TODO: Support full format extended word for 20, 30, and 40.
+                if (disp & 0x0100)
+                    throw console.assert(false);
+                var regName = ((disp & 0x8000) ? 'c.a[' : 'c.d[') + ((disp >> 12) & 7) + ']';
+                if (0 === (disp & 0x0800))
+                    regName = 'this.xw(' + regName + '&0xffff)';
+                var scale = (disp >> 9) & 3;
+                if (scale !== 0)
+                    regName = '(' + regName + [ '<<1)', '<<2)', '<<3)' ][scale - 1];
+                ea = 'c.a[' + r + ']+' + regName + '+' + this.extS8U32(disp & 0xff);
                 return {
                     'pre': '',
                     'post': '',
