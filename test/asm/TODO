@@ -1,6 +1,3 @@
-moveq x: not affected
-moveq v: cleared
-moveq c: cleared
 movea ccr: not affected
 movel: flag check
 move: index negative values
