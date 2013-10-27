@@ -1,18 +1,20 @@
 exports.j68 = (function () {
     var Context = function (memorySize) {
-        this.d = new Uint32Array(8);
-        this.a = new Uint32Array(8);
-        this.pc = 0;
-        this.i = 0;
-        this.cx = 0;
-        this.cn = 0;
-        this.cz = 0;
-        this.cv = 0;
-        this.cc = 0;
-        this.sr = 0;
-        this.m = new DataView(new ArrayBuffer(memorySize));
-        this.c = {};
+        this.d = new Uint32Array(8);  // Data registers.
+        this.a = new Uint32Array(8);  // Address registers.
+        this.pc = 0;  // Program counter.
+        this.i = 0;  // Instruction counts.
+        this.cx = 0;  // Condition code X.
+        this.cn = 0;  // Condition code N.
+        this.cz = 0;  // Condition code Z.
+        this.cv = 0;  // Condition code V.
+        this.cc = 0;  // Condition code C.
+        this.sr = 0;  // Status register.
+        this.m = new DataView(new ArrayBuffer(memorySize));  // Memory image.
+        this.c = {};  // Code cache.
+
         this.halt = false;
+        this.t = new Uint32Array(1);  // Work.
 
         // TODO: Check memory alignments, do cache invalidation.
         this.l8 = function (address) { return this.m.getUint8(address); };
@@ -48,6 +50,27 @@ exports.j68 = (function () {
         if (s16 < 0x8000)
             return s16;
         return 0xffff0000 + s16;
+    };
+
+    Context.prototype.divs = function (src, dst) {
+        // TODO: zero div trap.
+        var s16 = this.xw(src & 0xffff);
+        var d32 = dst & 0xffffffff;
+        if (s16 == 0xffff && d32 == 0x80000000) {
+            this.t[0] = 0x00;
+            return 0;
+        }
+        var q = (d32 / s16)|0;
+        var q16 = q & 0xffff;
+        if (q != this.xw(q16)) {
+            this.t[0] = 0x02;
+            return d32;
+        }
+        var r = d32 % s16;
+        this.t[0] = 0;
+        if (q === 0) this.t[0] |= 0x04;
+        else if (q & 0x8000) this.t[0] |= 0x08;
+        return q16 + (r << 16);
     };
 
     var toHex = function (n, l) {
@@ -290,8 +313,12 @@ exports.j68 = (function () {
                 return this.decode6(pc, inst);
             case 0x7:  // MOVEQ (TODO: unused bit check)
                 return this.decode7(pc, inst);
+            case 0x8:  // ...
+                return this.decode8(pc, inst);
             case 0x9:  // SUB
                 return this.decode9(pc, inst);
+            case 0xd:  // ADDX, ADDA, ADD
+                return this.decodeD(pc, inst);
             case 0xf:  // F-line
                 return this.decodeF(pc, inst);
         }
@@ -467,6 +494,39 @@ exports.j68 = (function () {
         };
     };
     
+    j68.prototype.decode8 = function (pc, inst) {
+        var r = (inst >> 9) & 7;
+        var opmode = (inst >> 6) & 7;
+        var code = [];
+        var ea;
+        var out;
+        switch (opmode) {
+            case 7:  // DIVS
+                ea = this.effectiveAddress(
+                        pc, inst,
+                        function (ea) { return 'c.d[' + r + ']=c.divs(' + ea + ',' + 'c.d[' + r + ']);'; },
+                        function (ea) { return 'c.d[' + r + ']=c.divs(c.l16(' + ea + '),' + 'c.d[' + r + ']);'; },
+                        2);
+                code.push(ea.code);
+                out = {
+                    'n': 'c.t[0]&8',
+                    'z': 'c.t[0]&4',
+                    'v': 'c.t[0]&2',
+                    'c': false
+                };
+                break;
+            default:
+                // TODO: Implement.
+                this.log('line 9 not impl opmode: ' + opmode);
+                throw console.assert(false);
+        }
+        return {
+            'code': code,
+            'out': out,
+            'pc': ea.pc
+        };
+    };
+
     j68.prototype.decode9 = function (pc, inst) {
         // SUB, SUBA
         var r = (inst >> 9) & 7;
@@ -475,7 +535,7 @@ exports.j68 = (function () {
         var ea;
         switch (opmode) {
             case 7:  // SUBAL
-                var ea = this.effectiveAddress(
+                ea = this.effectiveAddress(
                         pc, inst, 
                         function (ea) { return 'c.a[' + r + ']-=' + ea + ';'; },
                         function (ea) { return 'c.a[' + r + ']-=c.l32(' + ea + ');'; },
@@ -494,6 +554,33 @@ exports.j68 = (function () {
         };
     };
     
+    j68.prototype.decodeD = function (pc, inst) {
+        // ADDX, ADDA, ADD
+        var r = (inst >> 9) & 7;
+        var opmode = (inst >> 6) & 7;
+        var code = [];
+        var ea;
+        switch (opmode) {
+            case 7:  // ADDAL
+                var ea = this.effectiveAddress(
+                        pc, inst,
+                        function (ea) { return 'c.a[' + r + ']+=' + ea + ';'; },
+                        function (ea) { return 'c.a[' + r + ']+=c.l32(' + ea + ');'; },
+                        4);
+                code.push(ea.code);
+                break;
+            default:
+                // TODO: Implement other opmode.
+                // SUB will need condition update.
+                this.log('add not impl opmode: ' + opmode);
+                throw console.assert(false);
+        }
+        return {
+            'code': code,
+            'pc': ea.pc
+        };
+    };
+
     j68.prototype.decodeF = function (pc, inst) {
         // F-line
         return {

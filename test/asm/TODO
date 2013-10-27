@@ -6,3 +6,5 @@ addq: everything
 bra: ccr: not affected
 lea: everything
 move ccr: almost everything
+subal/addal
+0 div trap
