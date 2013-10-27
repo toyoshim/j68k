@@ -31,13 +31,17 @@ exports.j68 = (function () {
         Object.seal(this);
     };
     
-    Context.prototype.ccr = function () {
+    Context.prototype.syncSr = function () {
         this.sr &= 0xff00;
         if (this.cx) this.sr |= 0x10;
         if (this.cn) this.sr |= 0x08;
         if (this.cz) this.sr |= 0x04;
         if (this.cv) this.sr |= 0x02;
         if (this.cc) this.sr |= 0x01;
+    };
+    
+    Context.prototype.setCcr = function (ccr) {
+        this.sr = (this.sr & 0xff00) | (ccr & 0x1f);
     };
     
     Context.prototype.xw = function (s16) {
@@ -89,7 +93,8 @@ exports.j68 = (function () {
         return u32 + this.extS16U32(s16);
     };
     
-    j68.prototype.effectiveAddress = function (pc, inst, ld, size) {
+    j68.prototype.effectiveAddress = function (pc, inst, regop, memop, size) {
+        // TODO: Check supporting addressing mode for each operation.
         var mode = (inst >> 3) & 7;
         var r = inst & 7;
         var ea;
@@ -98,57 +103,39 @@ exports.j68 = (function () {
             case 0:
                 ea = 'c.d[' + r + ']';
                 return {
-                    'pre': '',
-                    'post': '',
-                    'pc': pc + 2,
-                    'ea': ea,
-                    'data': ea
+                    'code': regop(ea),
+                    'pc': pc + 2
                 };
             case 1:
                 ea = 'c.a[' + r + ']';
                 return {
-                    'pre': '',
-                    'post': '',
-                    'pc': pc + 2,
-                    'ea': ea,
-                    'data': ea
+                    'code': regop(ea),
+                    'pc': pc + 2
                 };
             case 2:
                 ea = 'c.a[' + r + ']';
                 return {
-                    'pre': '',
-                    'post': '',
-                    'pc': pc + 2,
-                    'ea': ea,
-                    'data': ld + '(' + ea + ')'
+                    'code': memop(ea),
+                    'pc': pc + 2
                 };
             case 3:
                 ea = 'c.a[' + r + ']';
                 return {
-                    'pre': '',
-                    'post': ';' + ea + '+=' + size,
-                    'pc': pc + 2,
-                    'ea': ea,
-                    'data': ld + '(' + ea + ')'
+                    'code': memop(ea) + ea + '+=' + size + ';',
+                    'pc': pc + 2
                 };
             case 4:
                 ea = 'c.a[' + r + ']';
                 return {
-                    'pre': ea + '-=' + size + ';',
-                    'post': '',
-                    'pc': pc + 2,
-                    'ea': ea,
-                    'data': ld + '(' + ea + ')'
+                    'code': ea + '-=' + size + ';' + memop(ea),
+                    'pc': pc + 2
                 };
             case 5:
                 disp = this.context.fetch(pc + 2);
                 ea = 'c.a[' + r + ']+' + this.extS16U32(disp);
                 return {
-                    'pre': '',
-                    'post': '',
-                    'pc': pc + 4,
-                    'ea': ea,
-                    'data': ld + '(' + ea + ')'
+                    'code': memop(ea),
+                    'pc': pc + 4
                 };
             case 6:
                 disp = this.context.fetch(pc + 2);
@@ -163,11 +150,8 @@ exports.j68 = (function () {
                     regName = '(' + regName + [ '<<1)', '<<2)', '<<3)' ][scale - 1];
                 ea = 'c.a[' + r + ']+' + regName + '+' + this.extS8U32(disp & 0xff);
                 return {
-                    'pre': '',
-                    'post': '',
-                    'pc': pc + 4,
-                    'ea': ea,
-                    'data': ld + '(' + ea + ')'
+                    'code': memop(ea),
+                    'pc': pc + 4
                 };
             case 7:
                 switch (r) {
@@ -175,12 +159,15 @@ exports.j68 = (function () {
                         disp = this.context.fetch(pc + 2);
                         ea = '' + this.addU32S16(pc + 2, disp);
                         return {
-                            'pre': '',
-                            'post': '',
-                            'pc': pc + 4,
-                            'ea': ea,
-                            'data': ld + '(' + ea + ')'
+                            'code': memop(ea),
+                            'pc': pc + 4
                         };
+                    case 4:
+                        ea = this.extS16U32(this.context.fetch(pc + 2));
+                        return {
+                            'code': regop(ea),
+                            'pc': pc + 4
+                        }
                 }
                 this.log('not impl ea mode 7 r: ' + r);
                 throw console.assert(false);
@@ -257,14 +244,14 @@ exports.j68 = (function () {
             }
         }
         
-        // 2. Insert PC/CR update.
+        // 2. Insert PC/SR update.
         for (i = asmLength - 1; i > 0; --i) {
             if (!asm[i].in)
                 continue;
             if (asm[i].in.pc)
                 asm[i - 1].post.push('c.pc=' + asm[i].pc + ';');
-            if (asm[i].in.ccr)
-                asm[i - 1].post.push('c.ccr();');
+            if (asm[i].in.sr)
+                asm[i - 1].post.push('c.syncSr();');
         }
         for (i = 0; i < asmLength; ++i) {
             if (asm[i].code)
@@ -274,12 +261,15 @@ exports.j68 = (function () {
         }
         
         // 3. Final code generation.
-        var func = new Function('c', opt.join(''));
+        var optCode = opt.join('');
+        var func = new Function('c', optCode);
         if (this.logJit) {
             console.timeEnd('compile');
             if (this.logOpt)
                 this.log(JSON.stringify(asm));
             this.log(func);
+            if (optCode.indexOf(';;') >= 0)
+                throw console.assert(false, 'unexpected code sequence: ' + optCode);
         }
         return func;
     };
@@ -313,19 +303,29 @@ exports.j68 = (function () {
         // MOVEL, MOVEAL
         var r = (inst >> 9) & 7;
         var mode = (inst >> 6) & 7;
-        var ea = this.effectiveAddress(pc, inst, 'c.l32', 4);
+        var ea;
         switch (mode) {
             case 0:
                 // MOVEL *,dx
+                ea = this.effectiveAddress(
+                        pc, inst,
+                        function (ea) { return 'c.d[' + r + ']=' + ea + ';'; },
+                        function (ea) { return 'c.d[' + r + ']=c.l32(' + ea + ');'; },
+                        4);
                 return {
-                    'code': [ ea.pre + 'c.d[' + r + ']=' + ea.data + ea.post + ';' ],
+                    'code': [ ea.code ],
                     'out': this.flagMove('c.d[' + r + ']'),
                     'pc': ea.pc
                 };
             case 1:
                 // MOVEAL
+                ea = this.effectiveAddress(
+                        pc, inst,
+                        function (ea) { return 'c.a[' + r + ']=' + ea + ';'; },
+                        function (ea) { return 'c.a[' + r + ']=c.l32(' + ea + ');'; },
+                        4);
                 return {
-                    'code': [ ea.pre + 'c.a[' + r + ']=' + ea.data + ea.post + ';' ],
+                    'code': [ ea.code ],
                     'pc': ea.pc
                 };
         }
@@ -337,15 +337,65 @@ exports.j68 = (function () {
     j68.prototype.decode4 = function (pc, inst) {
         var r = (inst >> 9) & 7;
         var op = (inst >> 6) & 7;
-        var ea = this.effectiveAddress(pc, inst);  // TODO: Check supporting addressing mode.
-        if (op == 7) {
-            // LEA
-            return {
-                'code': [ ea.pre + 'c.a[' + r + ']=' + ea.ea + ea.post + ';' ],
-                'pc': ea.pc
-            };
+        var ea;
+        switch (op) {
+            case 3:
+                switch (r) {
+                    case 1:
+                        // MOVE from CCR
+                        ea = this.effectiveAddress(
+                                pc, inst,
+                                function (ea) { return ea + '=c.sr&0x00ff;'; },
+                                function (ea) { return 'c.s16(' + ea + ',c.str&0x00ff);'; },
+                                2);
+                        return {
+                            'in': {
+                                'x': true,
+                                'n': true,
+                                'z': true,
+                                'v': true,
+                                'c': true
+                            },
+                            'code': [ 'c.syncSr();', ea.code ],
+                            'pc': ea.pc
+                        };
+                        // TODO
+                        break;
+                    case 2:
+                        // MOVE to CCR
+                        ea = this.effectiveAddress(
+                                pc, inst,
+                                function (ea) { return 'c.setCcr(' + ea + ');'; },
+                                function (ea) { return 'c.setCcr(c.l16(' + ea + '));'; },
+                                2);
+                        return {
+                            'code': [ ea.code ],
+                            'out': {
+                                'x': 'c.sr&0x10',
+                                'n': 'c.sr&0x08',
+                                'z': 'c.sr&0x04',
+                                'v': 'c.sr&0x02',
+                                'c': 'c.sr&0x01'
+                            },
+                            'pc': ea.pc
+                        };
+                }
+                // TODO: Implement others.
+                break;
+            case 7:
+                // LEA
+                ea = this.effectiveAddress(
+                        pc, inst,
+                        function (ea) { return 'c.a[' + r + ']=' + ea + ';'; },  // TODO: Correct?
+                        function (ea) { return 'c.a[' + r + ']=' + ea + ';'; },
+                        4);
+                return {
+                    'code': [ ea.code ],
+                    'pc': ea.pc
+                };
         }
-        // TODO
+        // TODO: Implement other operations.
+        this.log('not impl: line=4, op=' + op + ', r=' + r);
         throw console.assert(false);
     };
     
@@ -421,11 +471,16 @@ exports.j68 = (function () {
         // SUB, SUBA
         var r = (inst >> 9) & 7;
         var opmode = (inst >> 6) & 7;
-        var ea = this.effectiveAddress(pc, inst, 'c.l32', 4);
         var code = [];
+        var ea;
         switch (opmode) {
             case 7:  // SUBAL
-                code.push(ea.pre + 'c.a[' + r + ']-=' + ea.data + ea.post + ';');
+                var ea = this.effectiveAddress(
+                        pc, inst, 
+                        function (ea) { return 'c.a[' + r + ']-=' + ea + ';'; },
+                        function (ea) { return 'c.a[' + r + ']-=c.l32(' + ea + ');'; },
+                        4);
+                code.push(ea.code);
                 break;
             default:
                 // TODO: Implement other opmode.
@@ -449,7 +504,7 @@ exports.j68 = (function () {
                 'z': true,
                 'v': true,
                 'c': true,
-                'ccr': true
+                'sr': true
             },
             'code': [ 'c.f(' + inst + ');' ],
             'pc': pc + 2,
